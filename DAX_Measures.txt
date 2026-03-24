@@ -1,0 +1,162 @@
+========================================================
+  DAX MEASURES — Business Health Monitoring Dashboard
+  Copy each measure into Power BI: Modeling > New Measure
+========================================================
+
+──────────────────────────────────────────
+  1. CORE KPI MEASURES
+──────────────────────────────────────────
+
+Total Revenue =
+SUM(ecommerce_data[revenue])
+
+Total Orders =
+COUNTROWS(ecommerce_data)
+
+Average Order Value =
+DIVIDE([Total Revenue], [Total Orders], 0)
+
+Total Customers =
+DISTINCTCOUNT(ecommerce_data[customer_id])
+
+New Customers =
+CALCULATE(
+    DISTINCTCOUNT(ecommerce_data[customer_id]),
+    ecommerce_data[customer_type] = "New"
+)
+
+Returning Customers =
+CALCULATE(
+    DISTINCTCOUNT(ecommerce_data[customer_id]),
+    ecommerce_data[customer_type] = "Returning"
+)
+
+Returning Customer % =
+DIVIDE([Returning Customers], [Total Customers], 0)
+
+Return Rate =
+CALCULATE(
+    DIVIDE(
+        COUNTROWS(FILTER(ecommerce_data, ecommerce_data[order_status] = "Returned")),
+        COUNTROWS(ecommerce_data),
+        0
+    )
+)
+
+──────────────────────────────────────────
+  2. TIME INTELLIGENCE MEASURES
+──────────────────────────────────────────
+
+Revenue Last 7 Days =
+CALCULATE(
+    [Total Revenue],
+    DATESINPERIOD('Calendar'[Date], MAX('Calendar'[Date]), -7, DAY)
+)
+
+Revenue Previous 7 Days =
+CALCULATE(
+    [Total Revenue],
+    DATESINPERIOD('Calendar'[Date], MAX('Calendar'[Date]), -14, DAY),
+    DATESINPERIOD('Calendar'[Date], MAX('Calendar'[Date]), -7, DAY)
+)
+
+-- NOTE: For the Calendar table, go to Modeling > New Table and paste:
+-- Calendar = CALENDAR(MIN(ecommerce_data[order_date]), MAX(ecommerce_data[order_date]))
+-- Then add: Date = 'Calendar'[Date]
+-- Then add: Week = WEEKNUM('Calendar'[Date])
+-- Then add: Month = FORMAT('Calendar'[Date], "MMM YYYY")
+-- Then add: DayOfWeek = FORMAT('Calendar'[Date], "ddd")
+
+Revenue WoW Change % =
+DIVIDE([Revenue Last 7 Days] - [Revenue Previous 7 Days], [Revenue Previous 7 Days], 0)
+
+Orders Last 7 Days =
+CALCULATE(
+    [Total Orders],
+    DATESINPERIOD('Calendar'[Date], MAX('Calendar'[Date]), -7, DAY)
+)
+
+Orders Previous 7 Days =
+CALCULATE(
+    [Total Orders],
+    DATESINPERIOD('Calendar'[Date], MAX('Calendar'[Date]), -14, DAY),
+    DATESINPERIOD('Calendar'[Date], MAX('Calendar'[Date]), -7, DAY)
+)
+
+Orders WoW Change % =
+DIVIDE([Orders Last 7 Days] - [Orders Previous 7 Days], [Orders Previous 7 Days], 0)
+
+──────────────────────────────────────────
+  3. HEALTH ALERT MEASURES (the key differentiator)
+──────────────────────────────────────────
+
+Revenue Alert =
+VAR WoWChange = [Revenue WoW Change %]
+RETURN
+    IF(WoWChange < -0.20, "🔴 CRITICAL: Revenue dropped " & FORMAT(WoWChange, "0.0%") & " this week",
+    IF(WoWChange < -0.10, "🟡 WARNING: Revenue down " & FORMAT(WoWChange, "0.0%") & " — monitor closely",
+    "🟢 HEALTHY: Revenue on track"))
+
+Orders Alert =
+VAR OrdersChange = [Orders WoW Change %]
+RETURN
+    IF(OrdersChange < -0.15, "🔴 CRITICAL: Order volume down " & FORMAT(OrdersChange, "0.0%"),
+    IF(OrdersChange < -0.08, "🟡 WARNING: Orders declining",
+    "🟢 HEALTHY: Orders stable"))
+
+Churn Alert =
+VAR ChurnRate = [Return Rate]
+RETURN
+    IF(ChurnRate > 0.08, "🔴 HIGH CHURN: " & FORMAT(ChurnRate, "0.0%") & " return rate",
+    IF(ChurnRate > 0.05, "🟡 ELEVATED: " & FORMAT(ChurnRate, "0.0%") & " return rate",
+    "🟢 LOW CHURN: " & FORMAT(ChurnRate, "0.0%") & " return rate"))
+
+Overall Health Score =
+VAR RevenueScore = IF([Revenue WoW Change %] >= 0, 25, IF([Revenue WoW Change %] >= -0.10, 18, IF([Revenue WoW Change %] >= -0.20, 10, 0)))
+VAR OrderScore   = IF([Orders WoW Change %] >= 0, 25, IF([Orders WoW Change %] >= -0.08, 18, IF([Orders WoW Change %] >= -0.15, 10, 0)))
+VAR AOVScore     = IF([Average Order Value] >= 40, 25, IF([Average Order Value] >= 30, 18, 10))
+VAR ChurnScore   = IF([Return Rate] <= 0.03, 25, IF([Return Rate] <= 0.05, 18, IF([Return Rate] <= 0.08, 10, 0)))
+RETURN RevenueScore + OrderScore + AOVScore + ChurnScore
+
+Health Status =
+VAR Score = [Overall Health Score]
+RETURN
+    IF(Score >= 80, "EXCELLENT",
+    IF(Score >= 60, "GOOD",
+    IF(Score >= 40, "FAIR", "POOR")))
+
+──────────────────────────────────────────
+  4. CATEGORY MEASURES
+──────────────────────────────────────────
+
+Category Revenue Share % =
+DIVIDE(
+    [Total Revenue],
+    CALCULATE([Total Revenue], ALL(ecommerce_data[category])),
+    0
+)
+
+Top Category =
+TOPN(1,
+    VALUES(ecommerce_data[category]),
+    CALCULATE([Total Revenue]),
+    DESC
+)
+
+──────────────────────────────────────────
+  5. CHANNEL MEASURES
+──────────────────────────────────────────
+
+Revenue per Channel =
+CALCULATE([Total Revenue], ALLEXCEPT(ecommerce_data, ecommerce_data[channel]))
+
+Best Channel =
+TOPN(1,
+    VALUES(ecommerce_data[channel]),
+    CALCULATE([Total Revenue]),
+    DESC
+)
+
+========================================================
+  END OF MEASURES FILE
+========================================================
